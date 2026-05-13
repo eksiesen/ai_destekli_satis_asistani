@@ -14,6 +14,8 @@ export type ScamAnalysisResult = {
   extractedDomains?: string[];
   extractedEmails?: string[];
   safeBrowsingResults?: SafeBrowsingResult[];
+  /** Örn. qr-url-analysis */
+  source?: string;
 };
 
 /** Backend: Gemini kota / rate limit (HTTP 200) */
@@ -124,6 +126,10 @@ export function parseAnalysisResponse(data: unknown): ScamAnalysisResult {
   const extractedDomains = parseOptionalStringArray(o.extractedDomains);
   const extractedEmails = parseOptionalStringArray(o.extractedEmails);
   const safeBrowsingResults = parseSafeBrowsingResults(o.safeBrowsingResults);
+  if (o.source !== undefined && typeof o.source !== 'string') {
+    throw new Error('Invalid response');
+  }
+  const source = typeof o.source === 'string' ? o.source : undefined;
   return {
     riskScore: o.riskScore,
     riskLevel: o.riskLevel,
@@ -134,5 +140,6 @@ export function parseAnalysisResponse(data: unknown): ScamAnalysisResult {
     ...(extractedDomains !== undefined ? { extractedDomains } : {}),
     ...(extractedEmails !== undefined ? { extractedEmails } : {}),
     ...(safeBrowsingResults !== undefined ? { safeBrowsingResults } : {}),
+    ...(source !== undefined ? { source } : {}),
   };
 }
