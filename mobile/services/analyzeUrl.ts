@@ -1,8 +1,8 @@
-import { ANALYZE_URL_API_URL } from '../constants/api';
+import { ANALYZE_QR_URL } from '../config/api';
 import { parseAnalyzeApiResponse, type AnalyzeApiResponse } from '../types/analysis';
 
 export async function postAnalyzeUrl(url: string): Promise<AnalyzeApiResponse> {
-  const response = await fetch(ANALYZE_URL_API_URL, {
+  const response = await fetch(ANALYZE_QR_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),

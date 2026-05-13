@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -23,6 +23,7 @@ import {
 import { AnalysisResultCard } from './components/AnalysisResultCard';
 import { ElderlyAnalysisModal } from './components/ElderlyAnalysisModal';
 import { ElderlyModeResultCard } from './components/ElderlyModeResultCard';
+import { FamilyAlertCard } from './components/FamilyAlertCard';
 import { HeroHeader } from './components/HeroHeader';
 import { QuotaBusyCard } from './components/QuotaBusyCard';
 import { ModeSelectionScreen } from './components/ModeSelectionScreen';
@@ -34,10 +35,10 @@ import {
   type ScamAnalysisResult,
 } from './types/analysis';
 import type { SelectedImage } from './types/selectedImage';
+import { ANALYZE_IMAGE_URL } from './config/api';
 import { postAnalyzeUrl } from './services/analyzeUrl';
 import { parseQrPayloadToHttpUrl } from './utils/parseQrPayloadToHttpUrl';
-
-const API_URL = 'http://localhost:5000/api/analyze';
+import { shouldShowFamilyAlert } from './utils/shouldShowFamilyAlert';
 
 type AppMode = 'normal' | 'elderly' | null;
 
@@ -75,6 +76,11 @@ export default function App() {
   const [qrModalVisible, setQrModalVisible] = useState(false);
   const [qrInvalidWarning, setQrInvalidWarning] = useState<string | null>(null);
   const [scannedUrlPreview, setScannedUrlPreview] = useState<string | null>(null);
+  const [familyAlertManualOpen, setFamilyAlertManualOpen] = useState(false);
+
+  useEffect(() => {
+    setFamilyAlertManualOpen(false);
+  }, [analysis]);
 
   const dismissToast = useCallback(() => {
     setToastPayload(null);
@@ -91,6 +97,7 @@ export default function App() {
     setQrInvalidWarning(null);
     setScannedUrlPreview(null);
     lastQrAnalyzeUrlRef.current = null;
+    setFamilyAlertManualOpen(false);
     setMode(null);
   }, []);
 
@@ -229,9 +236,9 @@ export default function App() {
       }
 
       console.log('FormData prepared with file field');
-      console.log('Sending analyze request to:', API_URL);
+      console.log('Sending analyze request to:', ANALYZE_IMAGE_URL);
 
-      const response = await fetch(API_URL, {
+      const response = await fetch(ANALYZE_IMAGE_URL, {
         method: 'POST',
         body: formData,
       });
@@ -266,6 +273,20 @@ export default function App() {
       setIsAnalyzing(false);
     }
   };
+
+  const familyAutoTrigger =
+    analysis != null && !showQuotaBusy && shouldShowFamilyAlert(analysis);
+  const showFamilyAlertCard =
+    analysis != null &&
+    !showQuotaBusy &&
+    (familyAutoTrigger || familyAlertManualOpen);
+  const familyCardTone = familyAutoTrigger ? 'warning' : 'informative';
+
+  const handleFamilyNotifyPress = useCallback(() => {
+    if (!analysis || showQuotaBusy) return;
+    if (shouldShowFamilyAlert(analysis)) return;
+    setFamilyAlertManualOpen((open) => !open);
+  }, [analysis, showQuotaBusy]);
 
   if (mode === null) {
     return (
@@ -442,10 +463,64 @@ export default function App() {
               ) : null}
 
               {!showQuotaBusy && analysis && mode === 'normal' ? (
-                <AnalysisResultCard result={analysis} />
+                <>
+                  <AnalysisResultCard result={analysis} />
+                  <TouchableOpacity
+                    style={[
+                      styles.familyNotifyBtn,
+                      isAnalyzing && styles.familyNotifyBtnDisabled,
+                    ]}
+                    onPress={handleFamilyNotifyPress}
+                    disabled={isAnalyzing}
+                    activeOpacity={0.88}
+                    accessibilityRole="button"
+                    accessibilityLabel="Aileye bildir"
+                  >
+                    <Ionicons
+                      name="people-outline"
+                      size={18}
+                      color="#a7f3d0"
+                      style={styles.familyNotifyIcon}
+                    />
+                    <Text style={styles.familyNotifyBtnText}>Aileye Bildir</Text>
+                  </TouchableOpacity>
+                  {showFamilyAlertCard ? (
+                    <FamilyAlertCard
+                      tone={familyCardTone}
+                      riskLevelLabel={analysis.riskLevel}
+                    />
+                  ) : null}
+                </>
               ) : null}
               {!showQuotaBusy && analysis && mode === 'elderly' ? (
-                <ElderlyModeResultCard result={analysis} />
+                <>
+                  <ElderlyModeResultCard result={analysis} />
+                  <TouchableOpacity
+                    style={[
+                      styles.familyNotifyBtn,
+                      isAnalyzing && styles.familyNotifyBtnDisabled,
+                    ]}
+                    onPress={handleFamilyNotifyPress}
+                    disabled={isAnalyzing}
+                    activeOpacity={0.88}
+                    accessibilityRole="button"
+                    accessibilityLabel="Aileye bildir"
+                  >
+                    <Ionicons
+                      name="people-outline"
+                      size={18}
+                      color="#a7f3d0"
+                      style={styles.familyNotifyIcon}
+                    />
+                    <Text style={styles.familyNotifyBtnText}>Aileye Bildir</Text>
+                  </TouchableOpacity>
+                  {showFamilyAlertCard ? (
+                    <FamilyAlertCard
+                      tone={familyCardTone}
+                      riskLevelLabel={analysis.riskLevel}
+                    />
+                  ) : null}
+                </>
               ) : null}
             </View>
           </ScrollView>
@@ -635,6 +710,32 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '600',
     color: colors.riskMediumText,
+  },
+  familyNotifyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    alignSelf: 'stretch',
+    marginTop: 14,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: '#0c4a6e55',
+    borderWidth: 1,
+    borderColor: '#0ea5e988',
+  },
+  familyNotifyBtnDisabled: {
+    opacity: 0.5,
+  },
+  familyNotifyIcon: {
+    marginRight: 0,
+  },
+  familyNotifyBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#7dd3fc',
+    letterSpacing: 0.2,
   },
   analyzeButton: {
     backgroundColor: '#10b981',
