@@ -2,7 +2,19 @@ import 'dotenv/config'
 import cors from 'cors'
 import express, { type Request, type Response } from 'express'
 import multer from 'multer'
-import { analyzeScamImage, testGeminiConnection } from './services/gemini'
+import {
+  adjustScamTypeForBalancedAnalysis,
+  applyCorporateTrustCap,
+  filterWeakMisleadingReasons,
+  shouldApplyCorporateTrustCap,
+  syncRiskLevelFromScore,
+} from './services/analysisPostProcess'
+import {
+  analyzeScamImage,
+  isGeminiQuotaOrRateLimitError,
+  testGeminiConnection,
+} from './services/gemini'
+import { checkUrlsWithSafeBrowsing } from './services/safeBrowsing'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -30,10 +42,10 @@ app.get('/api/test-gemini', async (_req: Request, res: Response) => {
       message: 'AI Scam Shield connection successful',
     })
   } catch (error) {
-    console.error("Gemini test error:", error)
-    console.error("Gemini test error details:", error)
+    console.error('Gemini test error:', error)
+    console.error('Gemini test error details:', error)
     if (error instanceof Error) {
-      console.error("Gemini error message:", error.message)
+      console.error('Gemini error message:', error.message)
     }
     res.status(500).json({
       success: false,
@@ -52,10 +64,76 @@ app.post(
     }
     try {
       const analysis = await analyzeScamImage(req.file.buffer, req.file.mimetype)
-      console.log("Gemini scam analysis completed")
-      res.json(analysis)
+      console.log('Gemini scam analysis completed')
+
+      const analysisResult = { ...analysis }
+      let reasons = filterWeakMisleadingReasons([...analysis.reasons])
+
+      const extractedUrls = analysisResult.extractedUrls ?? []
+      if (extractedUrls.length > 0) {
+        analysisResult.safeBrowsingResults =
+          await checkUrlsWithSafeBrowsing(extractedUrls)
+      }
+
+      const maliciousCount =
+        analysisResult.safeBrowsingResults?.filter((r) => r.status === 'malicious')
+          .length ?? 0
+
+      let riskScore = analysisResult.riskScore
+      let riskLevel = analysisResult.riskLevel
+
+      if (maliciousCount >= 1) {
+        riskLevel = 'Yüksek Risk'
+        if (maliciousCount >= 2) {
+          riskScore = Math.max(riskScore, 95)
+        } else {
+          riskScore = Math.max(riskScore, 85)
+        }
+        const safeBrowsingReason =
+          'Google Safe Browsing sistemi bu bağlantıyı zararlı/phishing olarak işaretledi.'
+        if (!reasons.includes(safeBrowsingReason)) {
+          reasons.push(safeBrowsingReason)
+        }
+      } else if (
+        shouldApplyCorporateTrustCap({
+          safeBrowsingResults: analysisResult.safeBrowsingResults,
+          extractedDomains: analysisResult.extractedDomains,
+          extractedUrls: analysisResult.extractedUrls,
+          scamType: analysis.scamType,
+          reasonsOriginal: analysis.reasons,
+          elderlyExplanation: analysisResult.elderlyExplanation,
+        })
+      ) {
+        const capped = applyCorporateTrustCap(riskScore)
+        riskScore = capped.riskScore
+        riskLevel = capped.riskLevel
+      }
+
+      riskLevel = syncRiskLevelFromScore(riskScore)
+
+      const scamTypeAdjusted = adjustScamTypeForBalancedAnalysis(
+        analysisResult.scamType,
+        riskLevel,
+        maliciousCount >= 1,
+      )
+
+      res.json({
+        ...analysisResult,
+        riskScore,
+        riskLevel,
+        reasons,
+        scamType: scamTypeAdjusted,
+      })
     } catch (error) {
-      console.error("Gemini analysis error:", error)
+      if (isGeminiQuotaOrRateLimitError(error)) {
+        res.status(200).json({
+          quotaExceeded: true,
+          message:
+            'AI analiz servisi şu anda yoğun. Lütfen biraz sonra tekrar deneyin.',
+        })
+        return
+      }
+      console.error('Gemini analysis error:', error)
       res.status(500).json({
         error: 'AI analysis failed',
       })

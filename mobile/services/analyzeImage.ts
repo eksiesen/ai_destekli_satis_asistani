@@ -1,7 +1,7 @@
 import { ANALYZE_API_URL } from '../constants/api';
 import {
-  parseAnalysisResponse,
-  type ScamAnalysisResult,
+  parseAnalyzeApiResponse,
+  type AnalyzeApiResponse,
 } from '../types/analysis';
 
 type UploadPayload = {
@@ -19,7 +19,7 @@ type RNFilePayload = {
 
 export async function postAnalyzeImage(
   payload: UploadPayload,
-): Promise<ScamAnalysisResult> {
+): Promise<AnalyzeApiResponse> {
   const formData = new FormData();
   const file: RNFilePayload = {
     uri: payload.uri,
@@ -38,5 +38,5 @@ export async function postAnalyzeImage(
   }
 
   const json: unknown = await response.json();
-  return parseAnalysisResponse(json);
+  return parseAnalyzeApiResponse(json);
 }

@@ -6,6 +6,8 @@ import type { ScamAnalysisResult } from '../types/analysis';
 
 type Props = {
   result: ScamAnalysisResult;
+  /** Normal modda kapalı; varsayılan false */
+  showElderlyExplanation?: boolean;
 };
 
 type RiskVariant = 'high' | 'medium' | 'low';
@@ -16,9 +18,23 @@ function getRiskVariant(level: string): RiskVariant {
   return 'low';
 }
 
-export function AnalysisResultCard({ result }: Props) {
+export function AnalysisResultCard({
+  result,
+  showElderlyExplanation = false,
+}: Props) {
   const variant = getRiskVariant(result.riskLevel);
   const score = Math.round(result.riskScore);
+  const extractedUrls = result.extractedUrls ?? [];
+  const extractedDomains = result.extractedDomains ?? [];
+  const extractedEmails = result.extractedEmails ?? [];
+  const safeBrowsingResults = result.safeBrowsingResults ?? [];
+  const hasMaliciousUrl = safeBrowsingResults.some(
+    (r) => r.status === 'malicious',
+  );
+  const hasExtractedLinks =
+    extractedUrls.length > 0 ||
+    extractedDomains.length > 0 ||
+    extractedEmails.length > 0;
   const scoreHeroStyle = [
     styles.scoreHero,
     variant === 'high' && styles.scoreHeroHigh,
@@ -43,6 +59,16 @@ export function AnalysisResultCard({ result }: Props) {
           <Text style={styles.cardSubtitle}>Yapay zekâ değerlendirmesi</Text>
         </View>
       </View>
+
+      {hasMaliciousUrl ? (
+        <View style={styles.safeBrowsingWarning}>
+          <Ionicons name="warning" size={22} color={colors.danger} />
+          <Text style={styles.safeBrowsingWarningText}>
+            Bu içerikte Google Safe Browsing tarafından zararlı olarak işaretlenen
+            bağlantılar bulundu.
+          </Text>
+        </View>
+      ) : null}
 
       <View style={scoreHeroStyle}>
         <Text style={styles.scoreLabel}>Risk Skoru</Text>
@@ -90,6 +116,105 @@ export function AnalysisResultCard({ result }: Props) {
         <Text style={styles.fieldValueStrong}>{result.scamType}</Text>
       </View>
 
+      {hasExtractedLinks ? (
+        <View style={styles.linksSection}>
+          <Text style={styles.sectionHeading}>Tespit Edilen Bağlantılar</Text>
+          {extractedUrls.length > 0 ? (
+            <View style={styles.linkGroup}>
+              <Text style={styles.linkSubheading}>URL</Text>
+              {extractedUrls.map((url, i) => (
+                <Text
+                  key={`url-${i}`}
+                  style={styles.linkLine}
+                  selectable
+                >
+                  {url}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+          {extractedDomains.length > 0 ? (
+            <View style={styles.linkGroup}>
+              <Text style={styles.linkSubheading}>Domain</Text>
+              {extractedDomains.map((domain, i) => (
+                <Text
+                  key={`domain-${i}`}
+                  style={styles.linkLine}
+                  selectable
+                >
+                  {domain}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+          {extractedEmails.length > 0 ? (
+            <View style={[styles.linkGroup, styles.linkGroupLast]}>
+              <Text style={styles.linkSubheading}>E-posta</Text>
+              {extractedEmails.map((email, i) => (
+                <Text
+                  key={`email-${i}`}
+                  style={styles.linkLine}
+                  selectable
+                >
+                  {email}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {safeBrowsingResults.length > 0 ? (
+        <View style={styles.safeBrowsingSection}>
+          <Text style={styles.sectionHeading}>Bağlantı Güvenlik Kontrolü</Text>
+          {safeBrowsingResults.map((row, i) => (
+            <View
+              key={`sb-${i}-${row.url}`}
+              style={[
+                styles.safeBrowsingRow,
+                i === safeBrowsingResults.length - 1 && styles.safeBrowsingRowLast,
+              ]}
+            >
+              <Text style={styles.safeBrowsingUrl} selectable numberOfLines={3}>
+                {row.url}
+              </Text>
+              <View style={styles.safeBrowsingMeta}>
+                {row.status === 'safe' ? (
+                  <View style={[styles.sbBadge, styles.sbBadgeSafe]}>
+                    <Text style={[styles.sbBadgeText, styles.sbBadgeTextSafe]}>
+                      Güvenli
+                    </Text>
+                  </View>
+                ) : null}
+                {row.status === 'malicious' ? (
+                  <View style={[styles.sbBadge, styles.sbBadgeMalicious]}>
+                    <Text
+                      style={[styles.sbBadgeText, styles.sbBadgeTextMalicious]}
+                    >
+                      Zararlı
+                    </Text>
+                  </View>
+                ) : null}
+                {row.status === 'unknown' ? (
+                  <View style={[styles.sbBadge, styles.sbBadgeUnknown]}>
+                    <Text
+                      style={[styles.sbBadgeText, styles.sbBadgeTextUnknown]}
+                    >
+                      Bilinmiyor
+                    </Text>
+                  </View>
+                ) : null}
+                {row.threatTypes.length > 0 ? (
+                  <Text style={styles.sbThreatTypes} selectable>
+                    {row.threatTypes.join('\n')}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       <View style={styles.reasonsSection}>
         <Text style={styles.sectionHeading}>Risk Sebepleri</Text>
         <View style={styles.reasonList}>
@@ -104,13 +229,15 @@ export function AnalysisResultCard({ result }: Props) {
         </View>
       </View>
 
-      <View style={styles.elderlyBox}>
-        <View style={styles.elderlyHeader}>
-          <Ionicons name="heart-outline" size={18} color={colors.elderlyAccent} />
-          <Text style={styles.elderlyTitle}>Yaşlı Modu Açıklaması</Text>
+      {showElderlyExplanation ? (
+        <View style={styles.elderlyBox}>
+          <View style={styles.elderlyHeader}>
+            <Ionicons name="heart-outline" size={18} color={colors.elderlyAccent} />
+            <Text style={styles.elderlyTitle}>Yaşlı Modu Açıklaması</Text>
+          </View>
+          <Text style={styles.elderlyBody}>{result.elderlyExplanation}</Text>
         </View>
-        <Text style={styles.elderlyBody}>{result.elderlyExplanation}</Text>
-      </View>
+      ) : null}
     </View>
   );
 }
@@ -272,6 +399,110 @@ const styles = StyleSheet.create({
   },
   levelBadgeTextLow: {
     color: colors.riskLowBorder,
+  },
+  safeBrowsingWarning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 18,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: colors.riskHighSurface,
+    borderWidth: 1,
+    borderColor: colors.riskHighBorder,
+  },
+  safeBrowsingWarningText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '600',
+    color: colors.riskHighMuted,
+  },
+  linksSection: {
+    marginBottom: 18,
+  },
+  safeBrowsingSection: {
+    marginBottom: 18,
+  },
+  safeBrowsingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  safeBrowsingRowLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 0,
+  },
+  safeBrowsingUrl: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 20,
+    color: colors.textSecondary,
+  },
+  safeBrowsingMeta: {
+    alignItems: 'flex-end',
+    gap: 6,
+    maxWidth: '42%',
+  },
+  sbBadge: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  sbBadgeSafe: {
+    backgroundColor: '#34d39922',
+    borderColor: colors.riskLowBorder,
+  },
+  sbBadgeMalicious: {
+    backgroundColor: colors.riskHighGlow,
+    borderColor: colors.riskHighBorder,
+  },
+  sbBadgeUnknown: {
+    backgroundColor: '#fbbf2418',
+    borderColor: '#78716c',
+  },
+  sbBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  sbBadgeTextSafe: {
+    color: colors.riskLowBorder,
+  },
+  sbBadgeTextMalicious: {
+    color: colors.riskHighMuted,
+  },
+  sbBadgeTextUnknown: {
+    color: '#a8a29e',
+  },
+  sbThreatTypes: {
+    fontSize: 10,
+    lineHeight: 14,
+    color: colors.textMuted,
+    textAlign: 'right',
+    fontVariant: ['tabular-nums'],
+  },
+  linkGroup: {
+    marginBottom: 14,
+  },
+  linkGroupLast: {
+    marginBottom: 0,
+  },
+  linkSubheading: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: 8,
+  },
+  linkLine: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: colors.accent,
+    marginBottom: 6,
   },
   reasonsSection: {
     marginBottom: 18,

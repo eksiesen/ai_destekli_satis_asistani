@@ -13,16 +13,28 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  AnalysisToast,
+  getAnalysisToastPayload,
+  type AnalysisToastPayload,
+} from './components/AnalysisToast';
 import { AnalysisResultCard } from './components/AnalysisResultCard';
+import { ElderlyAnalysisModal } from './components/ElderlyAnalysisModal';
+import { ElderlyModeResultCard } from './components/ElderlyModeResultCard';
 import { HeroHeader } from './components/HeroHeader';
+import { QuotaBusyCard } from './components/QuotaBusyCard';
+import { ModeSelectionScreen } from './components/ModeSelectionScreen';
 import { colors } from './theme/colors';
 import {
-  parseAnalysisResponse,
+  isQuotaExceededResponse,
+  parseAnalyzeApiResponse,
   type ScamAnalysisResult,
 } from './types/analysis';
 import type { SelectedImage } from './types/selectedImage';
 
 const API_URL = 'http://localhost:5000/api/analyze';
+
+type AppMode = 'normal' | 'elderly' | null;
 
 function labelFromAsset(asset: ImagePicker.ImagePickerAsset): string {
   const name = asset.fileName?.trim();
@@ -37,10 +49,30 @@ function labelFromAsset(asset: ImagePicker.ImagePickerAsset): string {
 }
 
 export default function App() {
+  const [mode, setMode] = useState<AppMode>(null);
   const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<ScamAnalysisResult | null>(null);
+  const [showQuotaBusy, setShowQuotaBusy] = useState(false);
   const [showAnalysisError, setShowAnalysisError] = useState(false);
+  const [toastPayload, setToastPayload] = useState<AnalysisToastPayload | null>(
+    null,
+  );
+  const [elderlyModalVisible, setElderlyModalVisible] = useState(false);
+
+  const dismissToast = useCallback(() => {
+    setToastPayload(null);
+  }, []);
+
+  const resetModeSelection = useCallback(() => {
+    setSelectedImage(null);
+    setAnalysis(null);
+    setShowQuotaBusy(false);
+    setShowAnalysisError(false);
+    setToastPayload(null);
+    setElderlyModalVisible(false);
+    setMode(null);
+  }, []);
 
   const handlePick = useCallback(async () => {
     try {
@@ -73,7 +105,10 @@ export default function App() {
         file: asset.file ?? undefined,
       });
       setAnalysis(null);
+      setShowQuotaBusy(false);
       setShowAnalysisError(false);
+      setToastPayload(null);
+      setElderlyModalVisible(false);
     } catch {
       /* picker iptali / hata */
     }
@@ -84,7 +119,10 @@ export default function App() {
     if (!selectedImage) return;
     setIsAnalyzing(true);
     setShowAnalysisError(false);
+    setShowQuotaBusy(false);
     setAnalysis(null);
+    setToastPayload(null);
+    setElderlyModalVisible(false);
     try {
       console.log('Selected image:', selectedImage);
 
@@ -116,8 +154,23 @@ export default function App() {
       console.log('Analyze raw response:', rawText);
 
       const parsed: unknown = JSON.parse(rawText);
-      const result = parseAnalysisResponse(parsed);
+      const result = parseAnalyzeApiResponse(parsed);
+      if (isQuotaExceededResponse(result)) {
+        console.warn('Gemini quota exceeded');
+        setAnalysis(null);
+        setShowQuotaBusy(true);
+        setToastPayload(null);
+        setElderlyModalVisible(false);
+        return;
+      }
+      setShowQuotaBusy(false);
       setAnalysis(result);
+      if (mode === 'normal') {
+        setToastPayload(getAnalysisToastPayload(result));
+      }
+      if (mode === 'elderly') {
+        setElderlyModalVisible(true);
+      }
     } catch (error) {
       console.log('Analyze error:', error);
       setShowAnalysisError(true);
@@ -126,109 +179,187 @@ export default function App() {
     }
   };
 
+  if (mode === null) {
+    return (
+      <SafeAreaProvider>
+        <ModeSelectionScreen
+          onSelectNormal={() => setMode('normal')}
+          onSelectElderly={() => setMode('elderly')}
+        />
+        <StatusBar style="light" />
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+      <View style={styles.appRoot}>
+        <SafeAreaView
+          style={styles.safe}
+          edges={['top', 'left', 'right', 'bottom']}
         >
-          <HeroHeader />
-
-          <View style={styles.card}>
-            {selectedImage ? (
-              <View style={styles.previewWrap}>
-                <Image
-                  source={{ uri: selectedImage.uri }}
-                  style={styles.previewImage}
-                  resizeMode="contain"
-                  accessibilityLabel="Seçilen görsel önizlemesi"
-                />
-              </View>
-            ) : (
-              <View style={styles.iconCircle}>
-                <Ionicons name="images-outline" size={36} color={colors.accent} />
-              </View>
-            )}
-
-            <Text style={styles.prompt}>Şüpheli ekran görüntüsünü yükle</Text>
-
-            {selectedImage ? (
-              <Text style={styles.status} numberOfLines={2}>
-                {selectedImage.label}
-              </Text>
-            ) : null}
-
-            <TouchableOpacity
-              style={styles.pickButton}
-              onPress={handlePick}
-              activeOpacity={0.88}
-              accessibilityRole="button"
-              accessibilityLabel="Görsel seç"
-            >
-              <Text style={styles.pickButtonText}>Görsel Seç</Text>
-            </TouchableOpacity>
-
-            {selectedImage != null ? (
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.modeBar}>
               <TouchableOpacity
-                style={[
-                  styles.analyzeButton,
-                  isAnalyzing && styles.analyzeButtonDisabled,
-                ]}
-                onPress={handleAnalyze}
-                disabled={isAnalyzing}
+                style={styles.modeChangeBtn}
+                onPress={resetModeSelection}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Mod değiştir"
+              >
+                <Text style={styles.modeChangeText}>Mod Değiştir</Text>
+              </TouchableOpacity>
+            </View>
+
+            <HeroHeader />
+
+            <View style={styles.card}>
+              {selectedImage ? (
+                <View style={styles.previewWrap}>
+                  <Image
+                    source={{ uri: selectedImage.uri }}
+                    style={styles.previewImage}
+                    resizeMode="contain"
+                    accessibilityLabel="Seçilen görsel önizlemesi"
+                  />
+                </View>
+              ) : (
+                <View style={styles.iconCircle}>
+                  <Ionicons
+                    name="images-outline"
+                    size={36}
+                    color={colors.accent}
+                  />
+                </View>
+              )}
+
+              <Text style={styles.prompt}>Şüpheli ekran görüntüsünü yükle</Text>
+
+              {selectedImage ? (
+                <Text style={styles.status} numberOfLines={2}>
+                  {selectedImage.label}
+                </Text>
+              ) : null}
+
+              <TouchableOpacity
+                style={styles.pickButton}
+                onPress={handlePick}
                 activeOpacity={0.88}
                 accessibilityRole="button"
-                accessibilityLabel={
-                  isAnalyzing ? 'Analiz ediliyor' : 'Analiz et'
-                }
+                accessibilityLabel="Görsel seç"
               >
-                <Text style={styles.analyzeButtonText}>
-                  {isAnalyzing ? 'Analiz ediliyor...' : 'Analiz Et'}
-                </Text>
+                <Text style={styles.pickButtonText}>Görsel Seç</Text>
               </TouchableOpacity>
-            ) : null}
 
-            {isAnalyzing ? (
-              <View
-                style={styles.analyzingBanner}
-                accessibilityLiveRegion="polite"
-                accessibilityLabel="Analiz ediliyor"
-              >
-                <ActivityIndicator color={colors.accent} size="small" />
-                <Text style={styles.analyzingText}>Analiz ediliyor...</Text>
-              </View>
-            ) : null}
+              {selectedImage != null ? (
+                <TouchableOpacity
+                  style={[
+                    styles.analyzeButton,
+                    isAnalyzing && styles.analyzeButtonDisabled,
+                  ]}
+                  onPress={handleAnalyze}
+                  disabled={isAnalyzing}
+                  activeOpacity={0.88}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    isAnalyzing ? 'Analiz ediliyor' : 'Analiz et'
+                  }
+                >
+                  <Text style={styles.analyzeButtonText}>
+                    {isAnalyzing ? 'Analiz ediliyor...' : 'Analiz Et'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
 
-            {showAnalysisError ? (
-              <View style={styles.errorBox} accessibilityLiveRegion="polite">
-                <Ionicons
-                  name="alert-circle-outline"
-                  size={22}
-                  color={colors.danger}
-                  style={styles.errorIcon}
+              {isAnalyzing ? (
+                <View
+                  style={styles.analyzingBanner}
+                  accessibilityLiveRegion="polite"
+                  accessibilityLabel="Analiz ediliyor"
+                >
+                  <ActivityIndicator color={colors.accent} size="small" />
+                  <Text style={styles.analyzingText}>Analiz ediliyor...</Text>
+                </View>
+              ) : null}
+
+              {showAnalysisError ? (
+                <View style={styles.errorBox} accessibilityLiveRegion="polite">
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={22}
+                    color={colors.danger}
+                    style={styles.errorIcon}
+                  />
+                  <Text style={styles.errorTitle}>Analiz tamamlanamadı</Text>
+                  <Text style={styles.errorBody}>
+                    İnternet bağlantınızı kontrol edin ve bir süre sonra tekrar
+                    deneyin. Sorun sürerse farklı bir ağ veya sunucu adresini
+                    doğrulayın.
+                  </Text>
+                </View>
+              ) : null}
+
+              {showQuotaBusy ? (
+                <QuotaBusyCard
+                  onRetry={handleAnalyze}
+                  retryDisabled={isAnalyzing}
                 />
-                <Text style={styles.errorTitle}>Analiz tamamlanamadı</Text>
-                <Text style={styles.errorBody}>
-                  İnternet bağlantınızı kontrol edin ve bir süre sonra tekrar
-                  deneyin. Sorun sürerse farklı bir ağ veya sunucu adresini
-                  doğrulayın.
-                </Text>
-              </View>
-            ) : null}
+              ) : null}
 
-            {analysis ? <AnalysisResultCard result={analysis} /> : null}
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+              {!showQuotaBusy && analysis && mode === 'normal' ? (
+                <AnalysisResultCard result={analysis} />
+              ) : null}
+              {!showQuotaBusy && analysis && mode === 'elderly' ? (
+                <ElderlyModeResultCard result={analysis} />
+              ) : null}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+        {mode === 'normal' ? (
+          <AnalysisToast payload={toastPayload} onDismiss={dismissToast} />
+        ) : null}
+        {mode === 'elderly' ? (
+          <ElderlyAnalysisModal
+            visible={elderlyModalVisible}
+            riskLevel={analysis?.riskLevel ?? ''}
+            onClose={() => setElderlyModalVisible(false)}
+          />
+        ) : null}
+      </View>
       <StatusBar style="light" />
     </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
+  modeBar: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 6,
+  },
+  modeChangeBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modeChangeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  appRoot: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   safe: {
     flex: 1,
     backgroundColor: colors.background,
