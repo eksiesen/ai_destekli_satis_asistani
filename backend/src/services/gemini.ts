@@ -188,6 +188,49 @@ export async function testGeminiConnection(): Promise<string> {
   return result.response.text()
 }
 
+/**
+ * QR URL analizi için kısa Türkçe yorum; API anahtarı yoksa, kota/rate limit veya
+ * diğer hatalarda null döner (çağıran taraf kural tabanlı metne düşer).
+ */
+export async function tryGenerateQrUrlInsight(params: {
+  pageUrl: string
+  hostname: string
+  safeBrowsingStatus: 'safe' | 'malicious' | 'unknown'
+  primaryReason: string
+}): Promise<string | null> {
+  try {
+    const key = process.env.GEMINI_API_KEY?.trim()
+    if (!key) return null
+
+    const genAI = new GoogleGenerativeAI(key)
+    const model = genAI.getGenerativeModel({ model: SCAM_ANALYSIS_MODEL_ID })
+    const prompt = `Sen "AI Scam Shield" için Türkçe konuşan bir güvenlik asistanısın.
+
+Kullanıcı bir QR kod okuttu ve şu web adresi çıktı:
+- Tam URL: ${params.pageUrl}
+- Domain (hostname): ${params.hostname}
+- Google Safe Browsing özeti: ${params.safeBrowsingStatus}
+- Sistem değerlendirmesi: ${params.primaryReason}
+
+Görev: Yaşlı veya az deneyimli okuyucular için en fazla 2 kısa cümle yaz; sade Türkçe, net ve sakin bir ton kullan. Kesin suçlama yapma; Safe Browsing "safe" ise yine de temkinli olmayı hatırlat.
+
+Kurallar:
+- Sadece düz metin; markdown, JSON, liste veya kod bloğu kullanma.
+- En fazla 2 kısa cümle.`
+
+    const result = await model.generateContent(prompt)
+    const text = result.response.text().trim()
+    if (!text) return null
+    return text.length > 600 ? text.slice(0, 600) : text
+  } catch (error) {
+    if (isGeminiQuotaOrRateLimitError(error)) {
+      return null
+    }
+    console.warn('tryGenerateQrUrlInsight failed:', error)
+    return null
+  }
+}
+
 export async function analyzeScamImage(
   imageBuffer: Buffer,
   mimeType: string,

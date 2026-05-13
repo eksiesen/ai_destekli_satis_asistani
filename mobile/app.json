@@ -38,6 +38,12 @@
         {
           "photosPermission": "AI Scam Shield, şüpheli ekran görüntülerini incelemeniz için fotoğraflarınıza erişir."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "AI Scam Shield, QR kodlarını güvenlik için taramak üzere kameraya erişir."
+        }
       ]
     ]
   }

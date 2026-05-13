@@ -14,6 +14,7 @@ import {
   isGeminiQuotaOrRateLimitError,
   testGeminiConnection,
 } from './services/gemini'
+import { analyzeUrlForQr, normalizeHttpUrlInput } from './services/analyzeUrlQr'
 import { checkUrlsWithSafeBrowsing } from './services/safeBrowsing'
 
 const upload = multer({
@@ -51,6 +52,28 @@ app.get('/api/test-gemini', async (_req: Request, res: Response) => {
       success: false,
       error: 'Gemini connection failed',
     })
+  }
+})
+
+app.post('/api/analyze-url', async (req: Request, res: Response) => {
+  const rawUrl = req.body?.url
+  if (rawUrl === undefined || rawUrl === null || String(rawUrl).trim() === '') {
+    res.status(400).json({ error: 'No URL provided' })
+    return
+  }
+
+  const normalized = normalizeHttpUrlInput(rawUrl)
+  if (!normalized) {
+    res.status(400).json({ error: 'Invalid URL' })
+    return
+  }
+
+  try {
+    const payload = await analyzeUrlForQr(normalized)
+    res.json(payload)
+  } catch (error) {
+    console.error('analyze-url error:', error)
+    res.status(500).json({ error: 'URL analysis failed' })
   }
 })
 

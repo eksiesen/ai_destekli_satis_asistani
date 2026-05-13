@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -24,6 +26,7 @@ import { ElderlyModeResultCard } from './components/ElderlyModeResultCard';
 import { HeroHeader } from './components/HeroHeader';
 import { QuotaBusyCard } from './components/QuotaBusyCard';
 import { ModeSelectionScreen } from './components/ModeSelectionScreen';
+import { QrScanModal } from './components/QrScanModal';
 import { colors } from './theme/colors';
 import {
   isQuotaExceededResponse,
@@ -31,10 +34,17 @@ import {
   type ScamAnalysisResult,
 } from './types/analysis';
 import type { SelectedImage } from './types/selectedImage';
+import { postAnalyzeUrl } from './services/analyzeUrl';
+import { parseQrPayloadToHttpUrl } from './utils/parseQrPayloadToHttpUrl';
 
 const API_URL = 'http://localhost:5000/api/analyze';
 
 type AppMode = 'normal' | 'elderly' | null;
+
+function shortUrlDisplay(url: string, max = 56): string {
+  if (url.length <= max) return url;
+  return `${url.slice(0, max - 1)}…`;
+}
 
 function labelFromAsset(asset: ImagePicker.ImagePickerAsset): string {
   const name = asset.fileName?.trim();
@@ -49,6 +59,9 @@ function labelFromAsset(asset: ImagePicker.ImagePickerAsset): string {
 }
 
 export default function App() {
+  const [, requestCameraPermission] = useCameraPermissions();
+  const lastQrAnalyzeUrlRef = useRef<string | null>(null);
+
   const [mode, setMode] = useState<AppMode>(null);
   const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -59,6 +72,9 @@ export default function App() {
     null,
   );
   const [elderlyModalVisible, setElderlyModalVisible] = useState(false);
+  const [qrModalVisible, setQrModalVisible] = useState(false);
+  const [qrInvalidWarning, setQrInvalidWarning] = useState<string | null>(null);
+  const [scannedUrlPreview, setScannedUrlPreview] = useState<string | null>(null);
 
   const dismissToast = useCallback(() => {
     setToastPayload(null);
@@ -71,6 +87,10 @@ export default function App() {
     setShowAnalysisError(false);
     setToastPayload(null);
     setElderlyModalVisible(false);
+    setQrModalVisible(false);
+    setQrInvalidWarning(null);
+    setScannedUrlPreview(null);
+    lastQrAnalyzeUrlRef.current = null;
     setMode(null);
   }, []);
 
@@ -109,14 +129,82 @@ export default function App() {
       setShowAnalysisError(false);
       setToastPayload(null);
       setElderlyModalVisible(false);
+      setScannedUrlPreview(null);
+      setQrInvalidWarning(null);
+      lastQrAnalyzeUrlRef.current = null;
     } catch {
       /* picker iptali / hata */
     }
   }, []);
 
+  const analyzeUrlFlow = useCallback(async (url: string) => {
+    lastQrAnalyzeUrlRef.current = url;
+    setIsAnalyzing(true);
+    setShowAnalysisError(false);
+    setShowQuotaBusy(false);
+    setAnalysis(null);
+    setToastPayload(null);
+    setElderlyModalVisible(false);
+    try {
+      const result = await postAnalyzeUrl(url);
+      if (isQuotaExceededResponse(result)) {
+        setAnalysis(null);
+        setShowQuotaBusy(true);
+        setToastPayload(null);
+        setElderlyModalVisible(false);
+        return;
+      }
+      setShowQuotaBusy(false);
+      setAnalysis(result);
+      if (mode === 'normal') {
+        setToastPayload(getAnalysisToastPayload(result));
+      }
+      if (mode === 'elderly') {
+        setElderlyModalVisible(true);
+      }
+    } catch (error) {
+      console.log('QR URL analyze error:', error);
+      setShowAnalysisError(true);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [mode]);
+
+  const handleQrPayload = useCallback(
+    (raw: string) => {
+      setQrModalVisible(false);
+      const parsedUrl = parseQrPayloadToHttpUrl(raw);
+      if (!parsedUrl) {
+        setQrInvalidWarning('QR kod içinde geçerli bir bağlantı bulunamadı.');
+        setScannedUrlPreview(null);
+        return;
+      }
+      setQrInvalidWarning(null);
+      setScannedUrlPreview(parsedUrl);
+      void analyzeUrlFlow(parsedUrl);
+    },
+    [analyzeUrlFlow],
+  );
+
+  const openQrScanner = useCallback(async () => {
+    const permissionResponse = await requestCameraPermission();
+    if (!permissionResponse.granted) {
+      Alert.alert(
+        'Kamera izni gerekli',
+        'Kamera izni olmadan QR tarama yapılamaz.',
+      );
+      return;
+    }
+    setQrInvalidWarning(null);
+    setQrModalVisible(true);
+  }, [requestCameraPermission]);
+
   const handleAnalyze = async () => {
     console.log('Analyze pressed');
     if (!selectedImage) return;
+    lastQrAnalyzeUrlRef.current = null;
+    setScannedUrlPreview(null);
+    setQrInvalidWarning(null);
     setIsAnalyzing(true);
     setShowAnalysisError(false);
     setShowQuotaBusy(false);
@@ -256,6 +344,44 @@ export default function App() {
                 <Text style={styles.pickButtonText}>Görsel Seç</Text>
               </TouchableOpacity>
 
+              <TouchableOpacity
+                style={[styles.qrButton, isAnalyzing && styles.qrButtonDisabled]}
+                onPress={openQrScanner}
+                disabled={isAnalyzing}
+                activeOpacity={0.88}
+                accessibilityRole="button"
+                accessibilityLabel="QR tara"
+              >
+                <Ionicons
+                  name="qr-code-outline"
+                  size={20}
+                  color={colors.accent}
+                  style={styles.qrButtonIcon}
+                />
+                <Text style={styles.qrButtonText}>QR Tara</Text>
+              </TouchableOpacity>
+
+              {scannedUrlPreview ? (
+                <View style={styles.qrPreviewBox} accessibilityLiveRegion="polite">
+                  <Text style={styles.qrPreviewLabel}>Okunan bağlantı</Text>
+                  <Text style={styles.qrPreviewUrl} selectable numberOfLines={3}>
+                    {shortUrlDisplay(scannedUrlPreview)}
+                  </Text>
+                </View>
+              ) : null}
+
+              {qrInvalidWarning ? (
+                <View style={styles.qrWarnBox} accessibilityLiveRegion="polite">
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={22}
+                    color={colors.riskMediumText}
+                    style={styles.errorIcon}
+                  />
+                  <Text style={styles.qrWarnText}>{qrInvalidWarning}</Text>
+                </View>
+              ) : null}
+
               {selectedImage != null ? (
                 <TouchableOpacity
                   style={[
@@ -306,7 +432,11 @@ export default function App() {
 
               {showQuotaBusy ? (
                 <QuotaBusyCard
-                  onRetry={handleAnalyze}
+                  onRetry={() => {
+                    const u = lastQrAnalyzeUrlRef.current;
+                    if (u) void analyzeUrlFlow(u);
+                    else void handleAnalyze();
+                  }}
                   retryDisabled={isAnalyzing}
                 />
               ) : null}
@@ -330,6 +460,11 @@ export default function App() {
             onClose={() => setElderlyModalVisible(false)}
           />
         ) : null}
+        <QrScanModal
+          visible={qrModalVisible}
+          onClose={() => setQrModalVisible(false)}
+          onQrPayload={handleQrPayload}
+        />
       </View>
       <StatusBar style="light" />
     </SafeAreaProvider>
@@ -433,6 +568,73 @@ const styles = StyleSheet.create({
     color: colors.buttonOnPrimary,
     fontSize: 16,
     fontWeight: '600',
+  },
+  qrButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.surface,
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 12,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  qrButtonDisabled: {
+    opacity: 0.55,
+  },
+  qrButtonIcon: {
+    marginRight: 2,
+  },
+  qrButtonText: {
+    color: colors.accent,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  qrPreviewBox: {
+    marginTop: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignSelf: 'stretch',
+    backgroundColor: colors.accentMuted,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  qrPreviewLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  qrPreviewUrl: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textPrimary,
+    fontWeight: '600',
+  },
+  qrWarnBox: {
+    marginTop: 14,
+    padding: 14,
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#fbbf2418',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.riskMediumBorder,
+  },
+  qrWarnText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 22,
+    fontWeight: '600',
+    color: colors.riskMediumText,
   },
   analyzeButton: {
     backgroundColor: '#10b981',
