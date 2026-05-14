@@ -1,4 +1,4 @@
-import { ANALYZE_API_URL } from '../constants/api';
+import { ANALYZE_IMAGE_URL } from '../config/api';
 import {
   parseAnalyzeApiResponse,
   type AnalyzeApiResponse,
@@ -28,7 +28,7 @@ export async function postAnalyzeImage(
   };
   formData.append('file', file as unknown as Blob);
 
-  const response = await fetch(ANALYZE_API_URL, {
+  const response = await fetch(ANALYZE_IMAGE_URL, {
     method: 'POST',
     body: formData,
   });
