@@ -26,9 +26,12 @@ import { ElderlyModeResultCard } from './components/ElderlyModeResultCard';
 import { FamilyAlertCard } from './components/FamilyAlertCard';
 import { HeroHeader } from './components/HeroHeader';
 import { QuotaBusyCard } from './components/QuotaBusyCard';
+import { AuthScreen } from './components/AuthScreen';
 import { ModeSelectionScreen } from './components/ModeSelectionScreen';
 import { QrScanModal } from './components/QrScanModal';
+import { getUserSession, logoutUserSession } from './services/authStorage';
 import { colors } from './theme/colors';
+import type { UserSession } from './types/auth';
 import {
   isQuotaExceededResponse,
   parseAnalyzeApiResponse,
@@ -63,6 +66,9 @@ export default function App() {
   const [, requestCameraPermission] = useCameraPermissions();
   const lastQrAnalyzeUrlRef = useRef<string | null>(null);
 
+  const [userSession, setUserSession] = useState<UserSession | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   const [mode, setMode] = useState<AppMode>(null);
   const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -77,6 +83,28 @@ export default function App() {
   const [qrInvalidWarning, setQrInvalidWarning] = useState<string | null>(null);
   const [scannedUrlPreview, setScannedUrlPreview] = useState<string | null>(null);
   const [familyAlertManualOpen, setFamilyAlertManualOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const session = await getUserSession();
+        if (cancelled) return;
+        if (session != null && session.isLoggedIn) {
+          setUserSession(session);
+        } else {
+          setUserSession(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setFamilyAlertManualOpen(false);
@@ -288,6 +316,34 @@ export default function App() {
     setFamilyAlertManualOpen((open) => !open);
   }, [analysis, showQuotaBusy]);
 
+  const handleLogout = useCallback(async () => {
+    await logoutUserSession();
+    resetModeSelection();
+    setIsAnalyzing(false);
+    setUserSession(null);
+  }, [resetModeSelection]);
+
+  if (authLoading) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.authLoadingRoot} edges={['top', 'left', 'right', 'bottom']}>
+          <ActivityIndicator color={colors.accent} size="large" />
+          <Text style={styles.authLoadingText}>AI Scam Shield yükleniyor...</Text>
+        </SafeAreaView>
+        <StatusBar style="light" />
+      </SafeAreaProvider>
+    );
+  }
+
+  if (userSession == null) {
+    return (
+      <SafeAreaProvider>
+        <AuthScreen onAuthenticated={setUserSession} />
+        <StatusBar style="light" />
+      </SafeAreaProvider>
+    );
+  }
+
   if (mode === null) {
     return (
       <SafeAreaProvider>
@@ -313,7 +369,25 @@ export default function App() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.modeBar}>
+            <View style={styles.topBar}>
+              <View style={styles.userBlock}>
+                <Text
+                  style={styles.welcomeText}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  Hoş geldin, {userSession.fullName}
+                </Text>
+                <TouchableOpacity
+                  style={styles.logoutBtn}
+                  onPress={handleLogout}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="Çıkış yap"
+                >
+                  <Text style={styles.logoutBtnText}>Çıkış Yap</Text>
+                </TouchableOpacity>
+              </View>
               <TouchableOpacity
                 style={styles.modeChangeBtn}
                 onPress={resetModeSelection}
@@ -547,11 +621,51 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  modeBar: {
+  authLoadingRoot: {
+    flex: 1,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 16,
+  },
+  authLoadingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  topBar: {
     alignSelf: 'stretch',
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 10,
+  },
+  userBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  welcomeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
     marginBottom: 6,
+  },
+  logoutBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  logoutBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.danger,
   },
   modeChangeBtn: {
     paddingVertical: 8,

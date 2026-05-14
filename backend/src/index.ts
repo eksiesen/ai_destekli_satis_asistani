@@ -15,6 +15,7 @@ import {
   testGeminiConnection,
 } from './services/gemini'
 import { analyzeUrlForQr, normalizeHttpUrlInput } from './services/analyzeUrlQr'
+import { sendFamilyAlertEmail } from './services/mailService'
 import { checkUrlsWithSafeBrowsing } from './services/safeBrowsing'
 
 const upload = multer({
@@ -51,6 +52,45 @@ app.get('/api/test-gemini', async (_req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Gemini connection failed',
+    })
+  }
+})
+
+app.get('/api/test-mail', async (req: Request, res: Response) => {
+  const rawTo = req.query.to
+  const to = typeof rawTo === 'string' ? rawTo.trim() : ''
+  if (to === '') {
+    res.status(400).json({
+      success: false,
+      error: 'Missing recipient email',
+    })
+    return
+  }
+
+  try {
+    await sendFamilyAlertEmail({
+      to,
+      userFullName: 'Test Kullanıcı',
+      riskScore: 95,
+      riskLevel: 'Yüksek Risk',
+      scamType: 'Phishing',
+      reasons: [
+        'Şüpheli bağlantı tespit edildi.',
+        'Kullanıcıdan hızlı işlem yapması isteniyor.',
+      ],
+      analyzedUrl: 'https://example-scam-site.com',
+      elderlyExplanation:
+        'Bu bağlantı güvenli görünmüyor. Linke tıklamadan önce bir yakınına danış.',
+    })
+    res.json({
+      success: true,
+      message: 'Test email sent',
+    })
+  } catch (error) {
+    console.error('Test mail error:', error)
+    res.status(500).json({
+      success: false,
+      error: 'Test email failed',
     })
   }
 })
