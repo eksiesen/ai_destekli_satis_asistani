@@ -42,6 +42,7 @@ import { ANALYZE_IMAGE_URL } from './config/api';
 import { postAnalyzeUrl } from './services/analyzeUrl';
 import { parseQrPayloadToHttpUrl } from './utils/parseQrPayloadToHttpUrl';
 import { shouldShowFamilyAlert } from './utils/shouldShowFamilyAlert';
+import { notifyFamily } from './services/notifyFamily';
 
 type AppMode = 'normal' | 'elderly' | null;
 
@@ -83,6 +84,7 @@ export default function App() {
   const [qrInvalidWarning, setQrInvalidWarning] = useState<string | null>(null);
   const [scannedUrlPreview, setScannedUrlPreview] = useState<string | null>(null);
   const [familyAlertManualOpen, setFamilyAlertManualOpen] = useState(false);
+  const [isNotifyingFamily, setIsNotifyingFamily] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -310,11 +312,39 @@ export default function App() {
     (familyAutoTrigger || familyAlertManualOpen);
   const familyCardTone = familyAutoTrigger ? 'warning' : 'informative';
 
-  const handleFamilyNotifyPress = useCallback(() => {
+  const handleNotifyFamily = useCallback(async () => {
+    console.log("Family notify button pressed");
     if (!analysis || showQuotaBusy) return;
-    if (shouldShowFamilyAlert(analysis)) return;
-    setFamilyAlertManualOpen((open) => !open);
-  }, [analysis, showQuotaBusy]);
+
+    if (!userSession?.familyEmail) {
+      Alert.alert("Hata", "Kayıtlı aile e-postası bulunamadı.");
+      return;
+    }
+    
+    setIsNotifyingFamily(true);
+    try {
+      const payload = {
+        to: userSession?.familyEmail,
+        userFullName: userSession?.fullName,
+        riskScore: analysis?.riskScore,
+        riskLevel: analysis?.riskLevel,
+        scamType: analysis?.scamType,
+        reasons: analysis?.reasons,
+        analyzedUrl: analysis?.extractedUrls?.[0],
+        elderlyExplanation: analysis?.elderlyExplanation,
+      };
+      console.log("Notify payload:", payload);
+
+      await notifyFamily(payload as any);
+      setFamilyAlertManualOpen(true);
+      Alert.alert("Başarılı", "Aile bireyine mail gönderildi.");
+    } catch (error) {
+      console.log("Notify family failed:", error);
+      Alert.alert("Hata", "Mail gönderilemedi. Lütfen bağlantınızı kontrol edin.");
+    } finally {
+      setIsNotifyingFamily(false);
+    }
+  }, [analysis, showQuotaBusy, userSession]);
 
   const handleLogout = useCallback(async () => {
     await logoutUserSession();
@@ -542,10 +572,10 @@ export default function App() {
                   <TouchableOpacity
                     style={[
                       styles.familyNotifyBtn,
-                      isAnalyzing && styles.familyNotifyBtnDisabled,
+                      (isAnalyzing || isNotifyingFamily) && styles.familyNotifyBtnDisabled,
                     ]}
-                    onPress={handleFamilyNotifyPress}
-                    disabled={isAnalyzing}
+                    onPress={handleNotifyFamily}
+                    disabled={isAnalyzing || isNotifyingFamily}
                     activeOpacity={0.88}
                     accessibilityRole="button"
                     accessibilityLabel="Aileye bildir"
@@ -556,7 +586,9 @@ export default function App() {
                       color="#a7f3d0"
                       style={styles.familyNotifyIcon}
                     />
-                    <Text style={styles.familyNotifyBtnText}>Aileye Bildir</Text>
+                    <Text style={styles.familyNotifyBtnText}>
+                      {isNotifyingFamily ? 'Gönderiliyor...' : 'Aileye Bildir'}
+                    </Text>
                   </TouchableOpacity>
                   {showFamilyAlertCard ? (
                     <FamilyAlertCard
@@ -572,10 +604,10 @@ export default function App() {
                   <TouchableOpacity
                     style={[
                       styles.familyNotifyBtn,
-                      isAnalyzing && styles.familyNotifyBtnDisabled,
+                      (isAnalyzing || isNotifyingFamily) && styles.familyNotifyBtnDisabled,
                     ]}
-                    onPress={handleFamilyNotifyPress}
-                    disabled={isAnalyzing}
+                    onPress={handleNotifyFamily}
+                    disabled={isAnalyzing || isNotifyingFamily}
                     activeOpacity={0.88}
                     accessibilityRole="button"
                     accessibilityLabel="Aileye bildir"
@@ -586,7 +618,9 @@ export default function App() {
                       color="#a7f3d0"
                       style={styles.familyNotifyIcon}
                     />
-                    <Text style={styles.familyNotifyBtnText}>Aileye Bildir</Text>
+                    <Text style={styles.familyNotifyBtnText}>
+                      {isNotifyingFamily ? 'Gönderiliyor...' : 'Aileye Bildir'}
+                    </Text>
                   </TouchableOpacity>
                   {showFamilyAlertCard ? (
                     <FamilyAlertCard

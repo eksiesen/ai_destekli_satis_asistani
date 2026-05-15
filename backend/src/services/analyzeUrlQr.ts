@@ -15,7 +15,7 @@ const REASON_MALICIOUS =
 const REASON_SAFE =
   'Google Safe Browsing bu bağlantı için bilinen bir tehdit bulmadı.'
 const REASON_UNKNOWN =
-  'Bağlantı doğrulanamadı, açmadan önce domaini kontrol edin.'
+  'Google Safe Browsing sonucu alınamadı, bağlantı açılmadan önce manuel kontrol edilmelidir.'
 
 function defaultElderly(
   status: 'safe' | 'malicious' | 'unknown',
@@ -70,7 +70,7 @@ export async function analyzeUrlForQr(normalizedUrl: string): Promise<QrUrlAnaly
     scamType = 'QR Bağlantısı / Kontrol Edildi'
     reasons = [REASON_SAFE]
   } else {
-    riskScore = 52
+    riskScore = 45
     riskLevel = 'Orta Risk'
     scamType = 'QR Bağlantısı / Kontrol Edilmeli'
     reasons = [REASON_UNKNOWN]

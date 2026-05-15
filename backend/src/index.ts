@@ -95,6 +95,61 @@ app.get('/api/test-mail', async (req: Request, res: Response) => {
   }
 })
 
+app.post('/api/notify-family', async (req: Request, res: Response) => {
+  console.log("REAL notify-family endpoint called")
+  console.log("Notify body:", req.body)
+  console.log("Notify family recipient:", req.body?.to)
+
+  const {
+    to,
+    userFullName,
+    riskScore,
+    riskLevel,
+    scamType,
+    reasons,
+    analyzedUrl,
+    elderlyExplanation,
+  } = req.body
+
+  if (
+    !to ||
+    !userFullName ||
+    riskScore == null ||
+    !riskLevel ||
+    !scamType ||
+    !reasons
+  ) {
+    res.status(400).json({
+      success: false,
+      error: 'Missing required notification fields',
+    })
+    return
+  }
+
+  try {
+    await sendFamilyAlertEmail({
+      to,
+      userFullName,
+      riskScore,
+      riskLevel,
+      scamType,
+      reasons,
+      analyzedUrl,
+      elderlyExplanation,
+    })
+    res.json({
+      success: true,
+      message: 'Family notification email sent',
+    })
+  } catch (error) {
+    console.error('Family notification email error:', error)
+    res.status(500).json({
+      success: false,
+      error: 'Family notification email failed',
+    })
+  }
+})
+
 app.post('/api/analyze-url', async (req: Request, res: Response) => {
   const rawUrl = req.body?.url
   if (rawUrl === undefined || rawUrl === null || String(rawUrl).trim() === '') {

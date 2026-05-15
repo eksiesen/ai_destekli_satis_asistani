@@ -89,13 +89,18 @@ export async function checkUrlsWithSafeBrowsing(urls: string[]): Promise<SafeBro
 
     if (!res.ok) {
       const text = await res.text()
-      throw new Error(`Safe Browsing HTTP ${res.status}: ${text}`)
+      console.warn(`Safe Browsing unavailable (HTTP ${res.status}), returning unknown results: ${text}`)
+      return urls.map((url) => ({
+        url,
+        status: 'unknown' as const,
+        threatTypes: [],
+      }))
     }
 
     const data = (await res.json()) as FindThreatMatchesResponse
     return applyMatchesToUrls(urls, data.matches)
   } catch (error) {
-    console.error('Safe Browsing error:', error)
+    console.warn('Safe Browsing unavailable, returning unknown results')
     return urls.map((url) => ({
       url,
       status: 'unknown' as const,
